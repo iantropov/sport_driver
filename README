@@ -3,5 +3,5 @@ A driver of serial port without terminal interface
 Using:
 * add to Linux kernel(as module or as inline)
 * build kernel with it
-* create character device file by mknod
+* create character device file by mknod with choosen major and minor device numbers
 * read/write via this device file
