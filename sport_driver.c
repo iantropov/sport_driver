@@ -1,6 +1,7 @@
 /* 
 	A Driver of serial port without terminal interface
 */
+
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/types.h>
@@ -14,9 +15,8 @@
 #include <linux/slab.h>
 
 #include <asm/io.h>
+#include <asm/signal.h>
 #include <asm/uaccess.h>
-
-MODULE_LICENSE("Dual BSD/GPL");
 
 #define SPORT_IRQ 4
 #define SPORT_BASE 0x3f8
@@ -24,19 +24,23 @@ MODULE_LICENSE("Dual BSD/GPL");
 #define INT_WRITE 0x02
 #define NO_INT 0x01
 
+MODULE_LICENSE("Dual BSD/GPL");
+
+
 dev_t sport_number;
 static DECLARE_WAIT_QUEUE_HEAD(wq);
+
 
 /*******************************************************************/
 irqreturn_t sport_interrupt(int irq, void *dev_id, struct pt_regs *regs)
 {
 	char a;
-	while(!(a=in(SPORT_BASE+2) & NO_INT));
-	if((a & INT_READ)||(a & INT_WRITE))wake_up(wq);
+	while(!(a=inb(SPORT_BASE+2) & NO_INT));
+	if((a & INT_READ)||(a & INT_WRITE))wake_up(&wq);
 	return IRQ_HANDLED;
 }
 /*******************************************************************/
-int scull_open(struct inode *inode, struct file *filp)
+int sport_open(struct inode *inode, struct file *filp)
 {
 	if(!request_region(SPORT_BASE, 8,"sport_region")){
 		printk(KERN_ERR "sport : can`t request region from %d\n",SPORT_BASE);
@@ -60,7 +64,7 @@ int scull_open(struct inode *inode, struct file *filp)
 	return 0;
 }
 /*******************************************************************/
-int scull_release(struct inode *inode, struct file *filp)
+int sport_release(struct inode *inode, struct file *filp)
 {
 	outb(0x00,SPORT_BASE+1);
 	free_irq(SPORT_IRQ, NULL); 
@@ -68,7 +72,7 @@ int scull_release(struct inode *inode, struct file *filp)
 	return 0;
 }
 /******************************************************************/
-ssize_t scull_read(struct file *filp, char __user *buf, size_t count, loff_t *f_pos)
+ssize_t sport_read(struct file *filp, char __user *buf, size_t count, loff_t *f_pos)
 {
 	DECLARE_WAITQUEUE(wait,current);
 	int i=count;
@@ -76,7 +80,7 @@ ssize_t scull_read(struct file *filp, char __user *buf, size_t count, loff_t *f_
 	if (!buffer)return -ENOMEM;
 	memset(buffer,0,count);
 
-	add_wait_queue(wq, &wait);
+	add_wait_queue(&wq, &wait);
 
 	while(count){
 		for (;;){
@@ -90,7 +94,7 @@ ssize_t scull_read(struct file *filp, char __user *buf, size_t count, loff_t *f_
 		buffer[i-count]=a;
 		count--;
 	}
-	remove_wait_queue(wq,&wait);
+	remove_wait_queue(&wq,&wait);
 	if(copy_to_user (buf, buffer, count)){
 		kfree(buffer);
 		return -EFAULT;
@@ -99,7 +103,7 @@ ssize_t scull_read(struct file *filp, char __user *buf, size_t count, loff_t *f_
 	return 0;
 }
 /*****************************************************************/
-ssize_t scull_write(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos)
+ssize_t sport_write(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos)
 {
 	DECLARE_WAITQUEUE(wait,current);
 	int i=count;
@@ -109,7 +113,7 @@ ssize_t scull_write(struct file *filp, const char __user *buf, size_t count, lof
 		kfree(buffer);
 		return -EFAULT;
 	}	
-	add_wait_queue(wq, &wait);
+	add_wait_queue(&wq, &wait);
 
 	while(count){
 		for (;;){
@@ -123,7 +127,7 @@ ssize_t scull_write(struct file *filp, const char __user *buf, size_t count, lof
 		outb(a,SPORT_BASE);
 		count--;
 	}
-	remove_wait_queue(wq,&wait);
+	remove_wait_queue(&wq,&wait);
 	kfree(buffer);
 	return count;
 }
@@ -144,7 +148,8 @@ static int sport_init(void)
 		printk(KERN_ALERT "I can`t allocate numbers!\n");
 		return 0;
 	}
-	struct cdev *sport_cdev = cdev_alloc();
+	struct cdev *sport_cdev;
+	sport_cdev = cdev_alloc();
 	sport_cdev->ops = &sport_fops;
 	result = cdev_add (sport_cdev, sport_number, 1);
 	if (result) printk(KERN_ALERT "Error on adding SPORT");
